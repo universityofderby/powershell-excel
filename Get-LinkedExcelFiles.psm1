@@ -35,6 +35,10 @@ PS> Get-LinkedExcelFiles -Path "C:\Temp" -Match ".*\[.*\].*" | Export-Csv -Path 
 Get Excel files containing external links recursively under path "C:\Temp" and export output to CSV file.
 
 .EXAMPLE
+PS> Get-LinkedExcelFiles -Path "C:\Temp" -Match ".*\[.*\].*" -WhatIf
+Get Excel files recursively under path "C:\Temp" but do not open files.
+
+.EXAMPLE
 PS> Get-LinkedExcelFiles -Path "C:\Temp" -Match ".*\[.*\].*" -Depth 2
 Get Excel files containing external links to a depth of two subdirectories under path "C:\Temp".
 
@@ -51,12 +55,16 @@ PS> Get-LinkedExcelFiles -Path "S:\Department\Shared" -Match ".*\\\\fileserver1.
 Get Excel files containing links to "\\fileserver1" or "\\fileserver2" under path "S:\Department\Shared" using filter "*.xlsx".
 
 .NOTES
+  Version: 0.2.0 - Added -WhatIf functionality
+  Date: 2017-11-27
+
   Version: 0.1.0 - Initial version
   Date: 2017-11-27
+  
   Author: Richard Lock
 #>
 
-  [CmdletBinding()]
+  [CmdletBinding(SupportsShouldProcess=$true)]
 
   Param (
     [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [String]$Path,
@@ -85,18 +93,20 @@ Get Excel files containing links to "\\fileserver1" or "\\fileserver2" under pat
         
   Process {
     ForEach ($excelWorkbook In $excelWorkbooks) {
-      $workbook = $excel.Workbooks.Open($excelWorkbook.FullName, 0, $true) # Open workbook, don't update links, read-only
+      If ($PSCmdlet.ShouldProcess($excelWorkbook.FullName, "Get Excel links")) {
+        $workbook = $excel.Workbooks.Open($excelWorkbook.FullName, 0, $true) # Open workbook, don't update links, read-only
       
-      $linkSources = $workbook.LinkSources()
-      ForEach ($linkSource in $linkSources) {
-        $result = New-object PSObject
-        $result | Add-Member -Name Workbook -Value $excelWorkbook.FullName -Membertype NoteProperty
-        $result | Add-Member -Name Link -Value $linkSource -Membertype NoteProperty
-        $results += $result
-      }
+        $linkSources = $workbook.LinkSources()
+        ForEach ($linkSource in $linkSources) {
+          $result = New-object PSObject
+          $result | Add-Member -Name Workbook -Value $excelWorkbook.FullName -Membertype NoteProperty
+          $result | Add-Member -Name Link -Value $linkSource -Membertype NoteProperty
+          $results += $result
+        }
                 
-      $workbook.Saved = $true
-      $workbook.Close()
+        $workbook.Saved = $true
+        $workbook.Close()
+      }
     }
 
     $results
