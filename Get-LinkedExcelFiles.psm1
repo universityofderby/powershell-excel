@@ -12,16 +12,22 @@ Modified to run as a cmdlet with additional parameters, and using Excel Workbook
 Specify the path to look for Excel files.
 
 .PARAMETER Match
-Specify the formula to match.
+Specify the formula to match (defaults to ".*\[.*\].*" to match external links).
 
 .PARAMETER Filter
-Specify the file filter.
+Specify the file filter (defaults to "*.xls", which also includes "*.xlsx").
 
 .PARAMETER Recurse
-Specify whether to get files recursively.
+Specify whether to get files recursively (defaults to true).
 
 .PARAMETER Depth
 Specify the depth of recursion.
+
+.PARAMETER Format
+Specify the delimiter character for text files (defaults to "2", comma separated).
+
+.PARAMETER Password
+Specify the password required to open a protected workbook (defaults to no password to avoid prompt).
 
 .OUTPUTS
 Object
@@ -55,6 +61,9 @@ PS> Get-LinkedExcelFiles -Path "S:\Department\Shared" -Match ".*\\\\fileserver1.
 Get Excel files containing links to "\\fileserver1" or "\\fileserver2" under path "S:\Department\Shared" using filter "*.xlsx".
 
 .NOTES
+  Version: 0.4.0 - Added Password paramater for protected workbooks and exception handling
+  Date: 2017-12-21
+  
   Version: 0.3.0 - Added progress bar and number of files for WhatIf
   Date: 2017-11-30
 
@@ -77,7 +86,9 @@ Get Excel files containing links to "\\fileserver1" or "\\fileserver2" under pat
     [Parameter()] [String]$Match = ".*\[.*\].*",
     [Parameter()] [String]$Filter = "*.xls",
     [Parameter()] [Boolean]$Recurse = $true,
-    [Parameter(ParameterSetName = "Depth")] [Int32]$Depth
+    [Parameter(ParameterSetName = "Depth")] [Int32]$Depth,
+    [Parameter()] [Int]$Format = 2,
+    [Parameter()] [String]$Password = ""
   )
   
   Begin {
@@ -102,17 +113,28 @@ Get Excel files containing links to "\\fileserver1" or "\\fileserver2" under pat
       If ($PSCmdlet.ShouldProcess($excelWorkbook.FullName, "Get Excel links")) {
         $i++
         
-        $workbook = $excel.Workbooks.Open($excelWorkbook.FullName, 0, $true) # Open workbook, don't update links, read-only
-        $linkSources = $workbook.LinkSources()
-        ForEach ($linkSource in $linkSources) {
+        Try {
+          # Open workbook (Workbook path, don't update links, read-only, format (comma delimited), protected workbook password)
+          # https://msdn.microsoft.com/en-us/vba/excel-vba/articles/workbooks-open-method-excel
+          $workbook = $excel.Workbooks.Open($excelWorkbook.FullName, 0, $true, $Format, $Password)
+          $linkSources = $workbook.LinkSources()
+          ForEach ($linkSource in $linkSources) {
+            $result = New-object PSObject
+            $result | Add-Member -Name Workbook -Value $excelWorkbook.FullName -Membertype NoteProperty
+            $result | Add-Member -Name Link -Value $linkSource -Membertype NoteProperty
+            $result | Add-Member -Name Exception -Value "" -Membertype NoteProperty
+            $results += $result
+          }     
+          $workbook.Saved = $true
+          $workbook.Close()
+        }
+        Catch {
           $result = New-object PSObject
           $result | Add-Member -Name Workbook -Value $excelWorkbook.FullName -Membertype NoteProperty
-          $result | Add-Member -Name Link -Value $linkSource -Membertype NoteProperty
+          $result | Add-Member -Name Link -Value "" -Membertype NoteProperty
+          $result | Add-Member -Name Exception -Value $_.Exception.Message -Membertype NoteProperty
           $results += $result
         }
-                
-        $workbook.Saved = $true
-        $workbook.Close()
         
         Write-Progress -Activity "Searching $($excelWorkbooks.Count) Excel files under ""$Path"" for links" -PercentComplete (($i / $excelWorkbooks.Count) * 100)
       }
